@@ -1,112 +1,126 @@
 #!/bin/bash
+# =========================================
+#  Ultimate BT 自动安装脚本（最新版）
+#  宝塔面板 + UltimateBT 补丁自动安装
+#  Author: jbwkzg / 2025
+# =========================================
+
 set -e
 
-echo "==============================================="
-echo "🚀 Ubuntu 宝塔终极自动化安装脚本（Ultimate BT）"
-echo "==============================================="
+# --- 颜色 ---
+RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[36m"; RESET="\033[0m"
+
+echo -e "${GREEN}🚀 开始安装 UltimateBT（宝塔破解版）...${RESET}"
 sleep 1
 
-# ---------------------------------------------------------
-# 基础环境检测
-# ---------------------------------------------------------
-echo "[INFO] 检测系统版本..."
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    echo "[INFO] 检测到系统：$NAME $VERSION"
-else
-    echo "[ERROR] 无法检测系统，终止安装！"
-    exit 1
-fi
 
-# ---------------------------------------------------------
-# 安装基础工具
-# ---------------------------------------------------------
-install_base_tools() {
-    echo "[INFO] 安装基础工具（curl, wget, unzip, ca-certificates, gnupg）..."
-    apt update -y
-    apt install -y lsb-release ca-certificates curl wget gnupg unzip software-properties-common apt-transport-https
-    echo "[ OK ] 基础工具安装完成"
-}
-
-# ---------------------------------------------------------
-# 创建 Swap（若不存在）
-# ---------------------------------------------------------
-setup_swap() {
-    echo "[INFO] 配置 Swap：4G"
-    if [ -f /swapfile ]; then
-        echo "[WARN] 检测到已有 /swapfile，跳过创建"
-        return
-    fi
-    fallocate -l 4G /swapfile
-    chmod 600 /swapfile
-    mkswap /swapfile
-    swapon /swapfile
-    echo "/swapfile swap swap defaults 0 0" >> /etc/fstab
-    echo "[ OK ] Swap 创建完成"
-}
-
-# ---------------------------------------------------------
-# 内存检测（补丁修复版）
-# ---------------------------------------------------------
-detect_memory() {
-    TOTAL_MEM=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
-    echo "[INFO] 检测到内存：${TOTAL_MEM} MB"
-}
-
-# ---------------------------------------------------------
-# 自动选择合适的软件商店（补丁修复版）
-# ---------------------------------------------------------
-install_store_by_memory() {
-    if [ -z "${TOTAL_MEM}" ]; then
-        detect_memory
-    fi
-
-    if [ "${TOTAL_MEM}" -lt 3500 ]; then
-        echo "[INFO] 内存 < 4G：安装轻量级 AppGrid"
-        apt install -y appgrid || echo "[WARN] AppGrid 安装失败"
+# ===============================
+#   系统检查
+# ===============================
+check_system() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        VERSION=$VERSION_ID
     else
-        echo "[INFO] 内存 ≥ 4G：安装 GNOME 软件中心"
-        apt install -y gnome-software gnome-software-plugin-snap || echo "[WARN] 软件中心安装失败"
+        echo -e "${RED}无法检测系统版本，退出${RESET}"
+        exit 1
+    fi
+
+    echo -e "${BLUE}ℹ️ 当前系统: $PRETTY_NAME ${RESET}"
+
+    case "$OS" in
+        ubuntu|debian)
+            PM="apt"
+            ;;
+        centos|alma|rocky)
+            PM="yum"
+            ;;
+        *)
+            echo -e "${RED}❌ 不支持的系统: $OS${RESET}"
+            exit 1
+            ;;
+    esac
+}
+check_system
+
+
+# ===============================
+#   更新系统 & 依赖
+# ===============================
+install_base() {
+    echo -e "${GREEN}📦 更新系统并安装环境依赖...${RESET}"
+
+    if [ "$PM" = "apt" ]; then
+        apt update -y
+        apt install -y wget curl unzip sudo
+    else
+        yum install -y wget curl unzip sudo
     fi
 }
+install_base
 
-# ---------------------------------------------------------
-# 设置中文环境
-# ---------------------------------------------------------
-set_chinese_locale() {
-    echo "[INFO] 设置系统中文语言..."
-    apt install -y language-pack-zh-hans
-    update-locale LANG=zh_CN.UTF-8
-    export LANG=zh_CN.UTF-8
-    echo "[ OK ] 中文语言环境设置完成（重启生效）"
-}
 
-# ---------------------------------------------------------
-# 安装宝塔面板
-# ---------------------------------------------------------
+# ===============================
+#   安装 宝塔面板
+# ===============================
 install_bt() {
-    echo "[INFO] 开始安装宝塔面板..."
-    wget -O install.sh http://download.bt.cn/install/install-ubuntu_6.0.sh
-    bash install.sh || echo "[WARN] 宝塔安装脚本异常，请检查网络"
+    echo -e "${GREEN}🔧 安装宝塔面板...${RESET}"
+    
+    # 自动无交互安装，不推广，不校验
+    bash <(curl -fsSL https://download.bt.cn/install/install_panel.sh) << EOF
+y
+EOF
+
+    echo -e "${GREEN}✔ 宝塔安装完成${RESET}"
 }
+install_bt
 
-# ---------------------------------------------------------
-# MAIN 流程（补丁整合）
-# ---------------------------------------------------------
-main() {
-    install_base_tools
-    setup_swap
 
-    detect_memory
-    install_store_by_memory
-    set_chinese_locale
+# ===============================
+#   安装 UltimateBT 补丁
+# ===============================
+install_ultimate_bt() {
+    echo -e "${GREEN}🩹 安装 Ultimate BT 补丁...${RESET}"
 
-    install_bt
+    BT_PATH="/www/server/panel"
+    PATCH_URL="https://raw.githubusercontent.com/jbwkzg/-1.0/main/ultimatebt-patch.zip"
+    PATCH_FILE="/root/ultimatebt.zip"
 
-    echo "==============================================="
-    echo "🎉 宝塔终极自动安装完成！"
-    echo "==============================================="
-    echo "👉 面板地址将在安装结束后由宝塔输出"
+    echo -e "${BLUE}📥 下载补丁...${RESET}"
+    curl -o "$PATCH_FILE" -L "$PATCH_URL"
+
+    echo -e "${BLUE}📂 解压补丁...${RESET}"
+    unzip -o "$PATCH_FILE" -d "$BT_PATH"
+
+    echo -e "${GREEN}✔ 补丁已生效${RESET}"
 }
+install_ultimate_bt
 
-main
+
+# ===============================
+#   重启宝塔
+# ===============================
+restart_bt() {
+    echo -e "${GREEN}🔄 重启宝塔服务...${RESET}"
+
+    if command -v bt >/dev/null; then
+        bt restart
+    else
+        /etc/init.d/bt restart
+    fi
+}
+restart_bt
+
+
+# ===============================
+#   显示宝塔面板信息
+# ===============================
+show_info() {
+    echo -e "${YELLOW}=======================================${RESET}"
+    echo -e "${GREEN}🎉 UltimateBT 安装完成！${RESET}"
+    echo -e "${BLUE}🌐 面板地址: ${RESET} http://服务器IP:8888"
+    echo -e "${YELLOW}⚙ 用户名与密码请用: bt default 查看${RESET}"
+    echo -e "${YELLOW}=======================================${RESET}"
+}
+show_info
